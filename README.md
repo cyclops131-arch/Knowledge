@@ -11,8 +11,8 @@ See [PROJECT_BRIEF.md](PROJECT_BRIEF.md) for the full plan.
 | 1 | Scaffold: Vite + React + TS + Tailwind + Framer Motion, routing, Pages deploy, chapter schema | ✅ |
 | 2 | Core components: RequestTimeline, SequenceDiagram, DeepDive, Term, LayerStack, WhatIfToggle, Quiz | ✅ |
 | 3 | Chapter 0 (Big Picture) + Chapter 2 (TCP) | ✅ |
-| 4 | Chapter 1: DNS | planned |
-| 5 | Chapter 3: TLS | planned |
+| 4 | Chapter 1: DNS (tree walk, anycast map) | ✅ |
+| 5 | Chapter 3: TLS (handshake, chain of trust, copycat attacker, resumption) | ✅ |
 | 6 | Stubs: HTTP, Auth, Beyond | planned |
 | 7 | Polish | planned |
 
@@ -59,6 +59,12 @@ That's it: the route, timeline strip, prev/next links and glossary pick it up. A
 | `deepDives` | Expandable cards titled with the original question |
 | `quiz` | Check-yourself questions |
 | `callout` | Highlighted note |
+| `table` | Simple table |
+| `anatomy` | A string split into hoverable parts (domain names, requests) |
+| `dnsTree` | DNS tree with an animated resolver walk and What If scenarios |
+| `anycastMap` | World map: one IP, many sites; tap a site to take it down |
+| `certChain` | Certificate chain verified link by link, with failure scenarios |
+| `routerView` | What endpoints vs. a router in the middle can read |
 
 Text supports a small markup: `**bold**`, `` `code` ``, and `[[term-id]]` or `[[term-id|shown text]]` for glossary tooltips. Glossary entries live in each chapter's `glossary` array.
 
