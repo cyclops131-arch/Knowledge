@@ -1,6 +1,35 @@
-import type { Chapter } from './types'
+import type { CertInfo, Chapter, Lane } from './types'
 
-// Placeholder: full content arrives in build phase 5 (see PROJECT_BRIEF.md).
+const client: Lane = { id: 'client', label: 'Your browser', sublabel: 'client' }
+const server: Lane = { id: 'server', label: 'www.google.com', sublabel: '142.250.80.36:443' }
+
+const leaf: CertInfo = {
+  id: 'leaf',
+  subject: '*.google.com',
+  role: 'Server certificate',
+  issuer: 'GTS CA (intermediate)',
+  fields: {
+    'Covers': '*.google.com, google.com, …',
+    'Public key': 'Google’s (its private half never leaves Google)',
+    'Valid': 'about 3 months',
+    'Signed by': 'GTS CA’s private key',
+  },
+}
+const intermediate: CertInfo = {
+  id: 'int',
+  subject: 'GTS CA',
+  role: 'Intermediate CA',
+  issuer: 'GTS Root R1',
+  fields: { 'Public key': 'GTS CA’s', 'Signed by': 'GTS Root R1’s private key' },
+}
+const root: CertInfo = {
+  id: 'root',
+  subject: 'GTS Root R1',
+  role: 'Root CA · in your trust store',
+  issuer: 'itself (self-signed)',
+  fields: { 'Public key': 'GTS Root R1’s', 'Where it comes from': 'Pre-installed with your OS / browser' },
+}
+
 export const tls: Chapter = {
   id: 'tls',
   path: '/tls',
@@ -8,8 +37,507 @@ export const tls: Chapter = {
   title: 'TLS: The Sealed Envelope',
   short: 'TLS',
   icon: '🔒',
-  summary: 'Agreeing on a secret key that never crosses the wire, and proving you are really talking to Google.',
-  status: 'planned',
-  sections: [],
-  glossary: [],
+  summary:
+    'The TCP pipe is open, but anything sent through it can be read by every router on the way. TLS agrees on a secret key that never crosses the wire, and proves you are really talking to Google.',
+  status: 'ready',
+  sections: [
+    {
+      type: 'prose',
+      paragraphs: [
+        'Right after the TCP handshake, because the URL says **https**, the browser starts a [[tls|TLS]] handshake. It has two jobs:',
+        '**1. Privacy:** agree on a shared secret key, so only the two endpoints can read the traffic. **2. Identity:** prove that the other end really is `www.google.com`, not someone pretending.',
+        'It uses slow-but-clever [[asymmetric-crypto|asymmetric crypto]] **only for the handshake**, then switches to fast [[symmetric-crypto|symmetric encryption]] for the actual data.',
+      ],
+    },
+    {
+      type: 'sequence',
+      id: 'tls-handshake',
+      title: 'The TLS handshake',
+      intro: 'Step through it, then flip to the copycat attacker. Hover or tap any arrow for its contents.',
+      lanes: [client, server],
+      scenarios: [
+        {
+          id: 'normal',
+          label: 'Normal',
+          steps: [
+            {
+              kind: 'message',
+              from: 'client',
+              to: 'server',
+              label: 'ClientHello',
+              fields: {
+                'TLS versions': '1.3, 1.2',
+                'Cipher suites': 'AES-128-GCM, ChaCha20-Poly1305, …',
+                'Client random': '32 fresh random bytes',
+                'Key share': 'my half of the key exchange',
+                'Server name (SNI)': 'www.google.com',
+              },
+              caption: '“Here’s what I support, a fresh [[client-random|random number]], and my half of the [[key-exchange|key exchange]].”',
+            },
+            {
+              kind: 'message',
+              from: 'server',
+              to: 'client',
+              label: 'ServerHello',
+              fields: {
+                Chosen: 'TLS 1.3, AES-128-GCM',
+                'Server random': '32 fresh random bytes',
+                'Key share': 'Google’s half of the key exchange',
+              },
+              caption: 'Google picks the version and [[cipher-suite|cipher]], and sends its own random number and key share.',
+            },
+            {
+              kind: 'note',
+              lanes: ['client', 'server'],
+              label: '🔑 both compute the same key',
+              caption:
+                'Each side combines its own secret with the other’s key share, plus both randoms, and gets the **same** key. **The key itself never crosses the wire.** Because the key-exchange secrets are thrown away afterwards, recording this traffic won’t reveal the key later: that’s [[forward-secrecy|forward secrecy]].',
+              tone: 'success',
+            },
+            {
+              kind: 'message',
+              from: 'server',
+              to: 'client',
+              label: 'Certificate',
+              fields: { Subject: '*.google.com', Issuer: 'GTS CA (intermediate)', Contains: 'Google’s public key + CA signature' },
+              caption: 'Google sends its [[certificate]] chain: “this public key belongs to google.com,” signed by a [[ca|certificate authority]].',
+            },
+            {
+              kind: 'message',
+              from: 'server',
+              to: 'client',
+              label: 'CertificateVerify',
+              fields: { Contains: 'signature over the handshake so far', 'Signed with': 'Google’s private key' },
+              caption: 'Proof Google holds the matching [[private-key|private key]]: it signs the [[handshake-transcript|handshake transcript]], which includes your fresh random number, so it can’t be replayed.',
+            },
+            {
+              kind: 'message',
+              from: 'server',
+              to: 'client',
+              label: 'Finished',
+              fields: { Contains: 'a MAC over the whole handshake', Meaning: '“nothing was tampered with”' },
+              caption: 'A checksum of everything so far, keyed with the new secret. If anyone altered a message, this won’t match.',
+            },
+            {
+              kind: 'note',
+              lanes: ['client'],
+              label: 'Verify ✓',
+              caption:
+                'The browser walks the [[chain-of-trust|chain]] up to a root it already trusts, checks the name and dates, and verifies the signature with the certificate’s [[public-key|public key]]. (See the chain demo below.)',
+              tone: 'success',
+            },
+            {
+              kind: 'message',
+              from: 'client',
+              to: 'server',
+              label: 'Finished',
+              fields: { Contains: 'the client’s MAC over the handshake' },
+              caption: 'The browser sends its own Finished. Both sides have now confirmed they saw the same handshake.',
+            },
+            {
+              kind: 'note',
+              lanes: ['client', 'server'],
+              label: '🔒 switch to symmetric encryption',
+              caption: 'From here on, everything is encrypted with the shared key using fast symmetric encryption (AES).',
+              tone: 'success',
+            },
+            {
+              kind: 'message',
+              from: 'client',
+              to: 'server',
+              label: '🔒 GET / HTTP/1.1',
+              fields: { 'On the wire': '17 03 03 01 2a 9f c4 … (scrambled)', Inside: 'GET / HTTP/1.1, Host: www.google.com' },
+              caption: 'The HTTP request finally goes out. Routers relay it but can’t read it.',
+            },
+            {
+              kind: 'message',
+              from: 'server',
+              to: 'client',
+              label: '🔒 200 OK',
+              fields: { Inside: '200 OK + HTML' },
+              caption: 'And the response comes back the same way.',
+              tone: 'success',
+            },
+          ],
+        },
+        {
+          id: 'copycat',
+          label: 'What if: copycat attacker',
+          description: 'An attacker on your Wi-Fi intercepts your connection and pretends to be google.com.',
+          lanes: [client, { id: 'server', label: 'Impostor', sublabel: 'pretending to be google' }],
+          steps: [
+            {
+              kind: 'note',
+              lanes: ['client', 'server'],
+              label: '😈 traffic for google.com goes to the attacker',
+              caption: 'Say a rogue Wi-Fi hotspot sends your packets to the attacker instead of Google. TCP connects fine; TCP doesn’t check identity.',
+              tone: 'danger',
+            },
+            {
+              kind: 'message',
+              from: 'client',
+              to: 'server',
+              label: 'ClientHello',
+              fields: { 'Client random': 'fresh random bytes', 'Server name': 'www.google.com' },
+              caption: 'The browser starts the handshake as usual.',
+            },
+            {
+              kind: 'message',
+              from: 'server',
+              to: 'client',
+              label: 'ServerHello',
+              caption: 'The attacker replies normally.',
+            },
+            {
+              kind: 'message',
+              from: 'server',
+              to: 'client',
+              label: 'Certificate (copied)',
+              fields: { Subject: '*.google.com', Source: 'copied from Google: certificates are public' },
+              caption: 'The attacker sends **Google’s real certificate**. Copying it is easy: every visitor receives it.',
+              tone: 'warning',
+            },
+            {
+              kind: 'note',
+              lanes: ['client'],
+              label: 'Chain ✓ (it’s genuine)',
+              caption: 'The chain checks out, because it really is Google’s certificate. So far, so convincing.',
+              tone: 'warning',
+            },
+            {
+              kind: 'message',
+              from: 'server',
+              to: 'client',
+              label: 'CertificateVerify',
+              fields: { 'Signed with': 'the attacker’s own key', 'Needed': 'Google’s private key, which the attacker doesn’t have' },
+              caption: 'Now the attacker must sign the handshake with the private key that matches the certificate. They don’t have it, so they sign with their own.',
+              tone: 'danger',
+            },
+            {
+              kind: 'note',
+              lanes: ['client'],
+              label: '✗ signature check fails',
+              caption: 'The browser checks the signature with the **certificate’s** public key. It doesn’t match. A copied certificate is useless without the private key.',
+              tone: 'danger',
+            },
+            {
+              kind: 'message',
+              from: 'client',
+              to: 'server',
+              label: 'Alert: bad certificate',
+              fields: { Alert: 'decrypt_error / bad_certificate', Then: 'connection closed' },
+              caption: 'The browser aborts and shows a full-page warning. The HTTP request, with your cookies, was never sent.',
+              tone: 'danger',
+            },
+          ],
+        },
+      ],
+      simplification:
+        'In TLS 1.3, ServerHello, Certificate, CertificateVerify and Finished go out together in one flight, and everything after ServerHello is already encrypted. The whole handshake costs one round trip.',
+    },
+    {
+      type: 'certChain',
+      title: 'The chain of trust',
+      intro:
+        'How does your browser trust a certificate it has never seen? It checks each signature up the chain to a root it already has. Step through the checks, then try the failures.',
+      scenarios: [
+        {
+          id: 'normal',
+          label: 'Genuine',
+          certs: [leaf, intermediate, root],
+          checks: [
+            {
+              label: 'Leaf signed by intermediate',
+              caption: 'Verify the signature on `*.google.com` using **GTS CA’s public key**. Only GTS CA’s private key could have produced it.',
+              ok: true,
+              certs: ['leaf', 'int'],
+            },
+            {
+              label: 'Intermediate signed by root',
+              caption: 'Verify the signature on GTS CA using **GTS Root R1’s public key**.',
+              ok: true,
+              certs: ['int', 'root'],
+            },
+            {
+              label: 'Root in trust store',
+              caption: 'Is GTS Root R1 one of the [[root-ca|root CAs]] that shipped with your OS or browser? Yes. That’s the [[trust-anchor|trust anchor]].',
+              ok: true,
+              certs: ['root'],
+            },
+            {
+              label: 'Right name, not expired',
+              caption: '`*.google.com` covers `www.google.com`, and today is within the validity dates.',
+              ok: true,
+              certs: ['leaf'],
+            },
+          ],
+          verdict: {
+            ok: true,
+            text: 'Trusted. Notice: no live call to Google or the CA was needed. Math plus a pre-installed root is enough, which is why it works the same on any continent.',
+          },
+        },
+        {
+          id: 'forged',
+          label: 'What if the certificate is edited?',
+          description: 'An attacker takes Google’s certificate and swaps in their own public key.',
+          certs: [
+            {
+              ...leaf,
+              suspicious: true,
+              fields: { ...leaf.fields, 'Public key': 'the ATTACKER’s (swapped in)' },
+            },
+            intermediate,
+            root,
+          ],
+          checks: [
+            {
+              label: 'Leaf signed by intermediate',
+              caption: 'The CA signed the **original** contents. Change a single byte (like the public key) and the signature no longer matches. Signatures can’t be forged without the CA’s private key.',
+              ok: false,
+              certs: ['leaf', 'int'],
+            },
+          ],
+          verdict: { ok: false, text: 'Rejected at the first link. The browser shows a security warning.' },
+        },
+        {
+          id: 'untrusted',
+          label: 'What if the root isn’t trusted?',
+          description: 'An attacker makes their own CA and issues themselves a “google.com” certificate.',
+          certs: [
+            { ...leaf, issuer: 'Totally Legit CA', suspicious: true, fields: { ...leaf.fields, 'Public key': 'the attacker’s', 'Signed by': 'Totally Legit CA' } },
+            {
+              id: 'int',
+              subject: 'Totally Legit CA',
+              role: 'Intermediate CA',
+              issuer: 'Totally Legit Root',
+              fields: { 'Made by': 'the attacker' },
+              suspicious: true,
+            },
+            {
+              id: 'root',
+              subject: 'Totally Legit Root',
+              role: 'Root CA · NOT in your trust store',
+              issuer: 'itself (self-signed)',
+              fields: { 'Made by': 'the attacker, in five minutes' },
+              suspicious: true,
+            },
+          ],
+          checks: [
+            { label: 'Leaf signed by intermediate', caption: 'Yes: the attacker controls both, so the signatures are valid…', ok: true, certs: ['leaf', 'int'] },
+            { label: 'Intermediate signed by root', caption: '…and this one too.', ok: true, certs: ['int', 'root'] },
+            {
+              label: 'Root in trust store',
+              caption: 'No. Anyone can make a root, but only a few hundred, audited and pre-installed, count. The chain leads nowhere trusted.',
+              ok: false,
+              certs: ['root'],
+            },
+          ],
+          verdict: { ok: false, text: 'Rejected: valid signatures, but the chain doesn’t end at a trust anchor.' },
+        },
+      ],
+      simplification: 'Names are shortened. Browsers also check revocation and Certificate Transparency logs.',
+    },
+    {
+      type: 'routerView',
+      title: 'What the routers see',
+      intro: 'The same request, as seen by the two endpoints and by a router in the middle. Toggle HTTPS off to see why it matters.',
+      plaintext: 'GET /search?q=tls HTTP/1.1\nHost: www.google.com\nUser-Agent: Mozilla/5.0\nCookie: SID=a8f3c91e…',
+      visibleMetadata: {
+        'Source IP': 'your public IP',
+        'Destination': '142.250.80.36 : 443',
+        'Hostname (SNI)': 'www.google.com',
+        'Size & timing': '≈ 600 bytes, 12:04:31',
+      },
+      note: 'TLS hides the **content**, not the fact that you talked to Google. The hostname is usually visible in the ClientHello (SNI); a newer extension, Encrypted Client Hello, hides that too.',
+    },
+    {
+      type: 'table',
+      title: 'Two kinds of crypto, two jobs',
+      columns: ['', 'Asymmetric (public/private key)', 'Symmetric (shared key)'],
+      rows: [
+        ['**Keys**', 'A pair: public (share it) and private (never share it)', 'One key both sides hold'],
+        ['**Speed**', 'Slow', 'Very fast (hardware-accelerated)'],
+        ['**Used for**', 'Key exchange and signatures, **handshake only**', 'Every byte of the actual traffic'],
+        ['**In TLS**', 'ECDHE key shares, certificate signatures', 'AES-GCM or ChaCha20'],
+      ],
+    },
+    {
+      type: 'keyPoints',
+      title: 'The pipe and the session',
+      points: [
+        { icon: '🚰', title: 'TCP connection = the pipe', body: 'Transport layer. Reliable, ordered bytes between two machines. Opened by SYN, closed by FIN.' },
+        { icon: '🔐', title: 'TLS session = the agreement', body: 'Security layer on top: the agreed keys and crypto state. Usually rides on one TCP connection…' },
+        { icon: '🎟️', title: 'Resumption', body: '…but a **session ticket** lets the TLS session outlive its TCP connection, skipping the full handshake on a new one.' },
+      ],
+    },
+    {
+      type: 'sequence',
+      id: 'resumption',
+      title: 'Session resumption',
+      intro: 'Compare a first visit with a return visit a few minutes later, after the TCP connection was closed.',
+      lanes: [client, server],
+      scenarios: [
+        {
+          id: 'first',
+          label: 'First visit',
+          steps: [
+            { kind: 'message', from: 'client', to: 'server', label: 'SYN · SYN-ACK · ACK', fields: { Layer: 'TCP' }, caption: 'A new TCP pipe (one round trip, compressed into one arrow here).' },
+            { kind: 'message', from: 'client', to: 'server', label: 'ClientHello', fields: { Layer: 'TLS' }, caption: 'Full TLS handshake begins.' },
+            { kind: 'message', from: 'server', to: 'client', label: 'ServerHello … Certificate … Finished', fields: { Includes: 'certificate chain + signature' }, caption: 'Certificate, signature, all of it.' },
+            { kind: 'message', from: 'client', to: 'server', label: 'Finished', caption: 'Handshake complete.' },
+            {
+              kind: 'message',
+              from: 'server',
+              to: 'client',
+              label: '🎟️ NewSessionTicket',
+              fields: { Contains: 'an encrypted note of the session’s secret', Lifetime: 'e.g. up to 7 days' },
+              caption: 'Google hands the browser a [[session-resumption|session ticket]]: “show me this next time and we can skip the heavy lifting.”',
+              tone: 'info',
+            },
+            { kind: 'message', from: 'client', to: 'server', label: '🔒 GET /', caption: 'Requests flow…' },
+            { kind: 'message', from: 'server', to: 'client', label: '🔒 200 OK', caption: '…and responses.', tone: 'success' },
+            {
+              kind: 'note',
+              lanes: ['client', 'server'],
+              label: 'idle → TCP closed (FIN)',
+              caption: 'Later the TCP connection closes after an idle timeout. The pipe is gone, but the browser keeps the ticket.',
+              tone: 'muted',
+              gapBefore: 1,
+            },
+          ],
+        },
+        {
+          id: 'resume',
+          label: 'Return visit (resumed)',
+          steps: [
+            { kind: 'message', from: 'client', to: 'server', label: 'SYN · SYN-ACK · ACK', fields: { Layer: 'TCP' }, caption: 'A **new** TCP pipe is still needed: the old one is closed.' },
+            {
+              kind: 'message',
+              from: 'client',
+              to: 'server',
+              label: 'ClientHello + 🎟️ ticket',
+              fields: { 'Pre-shared key': 'from the saved ticket', 'Key share': 'fresh (keeps forward secrecy)' },
+              caption: 'The browser presents its ticket alongside a normal hello.',
+              tone: 'info',
+            },
+            {
+              kind: 'message',
+              from: 'server',
+              to: 'client',
+              label: 'ServerHello + Finished',
+              fields: { Certificate: 'not sent', Signature: 'not needed' },
+              caption: 'Google recognizes the ticket. **No certificate, no signature check**: identity was already proven last time.',
+              tone: 'success',
+            },
+            { kind: 'message', from: 'client', to: 'server', label: 'Finished + 🔒 GET /', caption: 'The request can even go out right alongside Finished.' },
+            {
+              kind: 'note',
+              lanes: ['client', 'server'],
+              label: 'TLS session outlived its TCP connection',
+              caption: 'Same TLS session, different TCP pipe. That’s why “TLS session” and “TCP keep-alive” are different things.',
+              tone: 'success',
+            },
+          ],
+        },
+      ],
+      simplification: 'TLS 1.3 can even send the first request inside the ClientHello (“0-RTT”), at the cost of replay risk, so it is limited to safe requests.',
+    },
+    {
+      type: 'deepDives',
+      title: 'Deep dives: questions that came up',
+      items: [
+        {
+          question: 'How can someone on another continent trust Google’s certificate?',
+          answer: ['Three things together, none of which needs a live call to Google or the CA:'],
+          points: [
+            '**Signatures are unforgeable.** The CA signs with its [[private-key|private key]]; anyone can verify with its [[public-key|public key]]. Without the private key you can’t produce a valid signature.',
+            '**Trust anchors are pre-installed.** Your OS and browser ship with a list of [[root-ca|root CA]] public keys.',
+            '**Chain of trust.** Google’s certificate ← signed by an intermediate CA ← signed by a root CA in your trust store.',
+          ],
+        },
+        {
+          question: 'How does the client verify Google holds the private key?',
+          answer: [
+            'The client never sees the private key. In modern TLS, the server **signs the handshake transcript** (which includes the client’s fresh random number) with its private key, and the client verifies that signature with the public key from the certificate.',
+            'Because the transcript is unique to this handshake, an old signature can’t be replayed. And a copied certificate is useless without the private key. (Try the copycat toggle above.)',
+            '**Older approach** (TLS 1.2 RSA key exchange): the client encrypted a secret with the certificate’s public key; only the private-key holder could decrypt it and carry on.',
+          ],
+        },
+        {
+          question: 'What are the random numbers for?',
+          answer: ['Both sides contribute one per handshake, for two reasons:'],
+          points: [
+            '**Ingredients:** they’re mixed into the shared key, so neither side alone decides it.',
+            '**Freshness:** every session gets a unique key and a unique transcript, so recorded handshakes can’t be replayed.',
+          ],
+        },
+        {
+          question: 'Is the TLS “session” the same as TCP keep-alive?',
+          answer: [
+            'No. The **TCP connection** is the pipe (transport layer). The **TLS session** is the agreed key and crypto state (security layer, on top).',
+            'Usually one rides on the other, but [[session-resumption|session resumption]] lets a TLS session outlive its TCP connection and skip the full handshake on a new one. See the resumption demo above.',
+          ],
+        },
+      ],
+    },
+    {
+      type: 'quiz',
+      title: 'Check yourself',
+      questions: [
+        {
+          question: 'Does the shared encryption key ever travel across the network?',
+          options: ['Yes, encrypted with the public key', 'Yes, inside the certificate', 'No, both sides compute it from key shares and randoms', 'Only in TLS 1.3'],
+          answerIndex: 2,
+          explanation: 'Each side combines its own secret with the other’s key share. Only the key shares travel, and they can’t be used to work out the key.',
+        },
+        {
+          question: 'An attacker sends you Google’s real (copied) certificate. Where does the handshake fail?',
+          options: ['Chain verification', 'The signature over the handshake (CertificateVerify)', 'The TCP handshake', 'It doesn’t fail'],
+          answerIndex: 1,
+          explanation: 'The chain is genuine, but signing the handshake requires Google’s private key, which the attacker doesn’t have.',
+        },
+        {
+          question: 'Why is asymmetric crypto only used during the handshake?',
+          options: ['It’s less secure', 'It’s slow; symmetric encryption is much faster for bulk data', 'Routers can’t forward it', 'Certificates expire'],
+          answerIndex: 1,
+          explanation: 'Asymmetric operations are expensive. They’re used to agree on a key and prove identity, then fast symmetric ciphers take over.',
+        },
+        {
+          question: 'What can a router in the middle still see on an HTTPS connection?',
+          options: ['Nothing at all', 'The URL path and cookies', 'IP addresses, port, size, timing, and usually the hostname', 'The full request'],
+          answerIndex: 2,
+          explanation: 'TLS encrypts content. Addresses and timing are needed for routing; the hostname is in the ClientHello unless Encrypted Client Hello is used.',
+        },
+        {
+          question: 'Forward secrecy means…',
+          options: [
+            'Certificates are checked ahead of time',
+            'Recording today’s traffic won’t let someone decrypt it later, even with the server’s private key',
+            'The client sends data before the handshake finishes',
+            'Sessions can be resumed',
+          ],
+          answerIndex: 1,
+          explanation: 'Session keys come from throwaway key-exchange secrets, not from the long-term private key, so stealing that key later doesn’t unlock old recordings.',
+        },
+      ],
+    },
+  ],
+  glossary: [
+    { id: 'certificate', term: 'Certificate', definition: 'A document saying “this public key belongs to this name,” signed by a certificate authority.' },
+    { id: 'ca', term: 'Certificate authority (CA)', definition: 'An organization trusted to verify domain ownership and sign certificates.' },
+    { id: 'root-ca', term: 'Root CA', definition: 'A CA whose public key ships pre-installed in your OS or browser trust store. The top of a chain of trust.' },
+    { id: 'trust-anchor', term: 'Trust anchor', definition: 'A key you trust without further proof because it was pre-installed: in practice, the root CAs.' },
+    { id: 'chain-of-trust', term: 'Chain of trust', definition: 'Server certificate ← signed by intermediate CA ← signed by root CA. Each link is checked with the next one’s public key.' },
+    { id: 'public-key', term: 'Public key', definition: 'The shareable half of a key pair. Used to verify signatures (and, in some schemes, to encrypt).' },
+    { id: 'private-key', term: 'Private key', definition: 'The secret half of a key pair. Never shared. Used to create signatures that the public key can verify.' },
+    { id: 'asymmetric-crypto', term: 'Asymmetric crypto', definition: 'Crypto with a public/private key pair. Powerful but slow; in TLS used only for key exchange and signatures.' },
+    { id: 'symmetric-crypto', term: 'Symmetric encryption', definition: 'Both sides use the same secret key. Fast; used for all the actual data once the handshake is done.' },
+    { id: 'cipher-suite', term: 'Cipher suite', definition: 'A named combination of algorithms the two sides agree to use, e.g. TLS_AES_128_GCM_SHA256.' },
+    { id: 'client-random', term: 'Client / server random', definition: 'Fresh random bytes each side sends in its Hello. Mixed into the key and makes every handshake unique.' },
+    { id: 'key-exchange', term: 'Key exchange', definition: 'A method (e.g. ECDHE) letting two sides compute the same secret by swapping public “key shares”, without sending the secret itself.' },
+    { id: 'forward-secrecy', term: 'Forward secrecy', definition: 'Session keys come from throwaway secrets, so stealing a server’s long-term key later can’t decrypt recorded past traffic.' },
+    { id: 'handshake-transcript', term: 'Handshake transcript', definition: 'All the handshake messages so far. The server signs it to prove it holds the private key for this specific session.' },
+    { id: 'session-resumption', term: 'Session resumption', definition: 'Reusing a previous TLS session (via a ticket) on a new connection, skipping the certificate and full key exchange.' },
+    { id: 'sni', term: 'SNI', definition: 'Server Name Indication: the hostname sent in the ClientHello so one IP can serve many sites. Visible on the wire unless Encrypted Client Hello is used.' },
+  ],
 }

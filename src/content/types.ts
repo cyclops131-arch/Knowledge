@@ -171,7 +171,167 @@ export interface CalloutSection {
   body: string
 }
 
+// ---------- Generic: tables and hoverable "anatomy" strips ----------
+
+export interface TableSection {
+  type: 'table'
+  title?: string
+  intro?: string
+  columns: string[]
+  /** Cells support RichText markup. */
+  rows: string[][]
+}
+
+export interface AnatomyPart {
+  text: string
+  label: string
+  detail: string
+  tone?: Tone
+}
+
+/** A string split into hoverable parts, e.g. a domain name or an HTTP request. */
+export interface AnatomySection {
+  type: 'anatomy'
+  title?: string
+  intro?: string
+  parts: AnatomyPart[]
+  /** Optional hint drawn under the parts, e.g. "read right to left ←". */
+  hint?: string
+}
+
+// ---------- DNS: tree walk ----------
+
+export interface DnsNode {
+  id: string
+  label: string
+  /** Omitted for the root. */
+  parent?: string
+  sublabel?: string
+  /** 'new' = appears only when a scenario reveals it; 'missing' = shown as not existing. */
+  ghost?: 'new' | 'missing'
+}
+
+export interface DnsClient {
+  id: string
+  label: string
+  sublabel?: string
+}
+
+export interface DnsWalkStep {
+  /** Where the step happens (tree node or client id). */
+  from: string
+  /** If set, an arrow from `from` to `to`. If not, an event at `from` (e.g. a cache check). */
+  to?: string
+  label: string
+  caption: string
+  tone?: Tone
+  /** Badge for local events, e.g. "miss" / "hit". */
+  badge?: string
+  /** Extra nodes to highlight, e.g. the record that answers. */
+  highlight?: string[]
+  /** Ghost nodes revealed from this step on. */
+  reveal?: string[]
+  fields?: Record<string, string>
+}
+
+export interface DnsScenario {
+  id: string
+  label: string
+  description?: string
+  steps: DnsWalkStep[]
+}
+
+export interface DnsTreeSection {
+  type: 'dnsTree'
+  title?: string
+  intro?: string
+  nodes: DnsNode[]
+  clients: DnsClient[]
+  scenarios: DnsScenario[]
+  simplification?: string
+}
+
+// ---------- DNS: anycast map ----------
+
+export interface MapPoint {
+  id: string
+  label: string
+  lon: number
+  lat: number
+  /** Where to draw the label relative to the marker (default: sites below, users above). */
+  labelPos?: 'above' | 'below' | 'left' | 'right'
+}
+
+export interface AnycastMapSection {
+  type: 'anycastMap'
+  title?: string
+  intro?: string
+  /** The single IP every site announces. */
+  ip: string
+  serviceName: string
+  sites: MapPoint[]
+  users: MapPoint[]
+  simplification?: string
+}
+
+// ---------- TLS: certificate chain ----------
+
+export interface CertInfo {
+  id: string
+  subject: string
+  role: string
+  issuer: string
+  fields: Record<string, string>
+  /** Marks a bad certificate in a failure scenario. */
+  suspicious?: boolean
+}
+
+export interface CertCheck {
+  label: string
+  caption: string
+  ok: boolean
+  /** Certificates this check looks at (highlighted). */
+  certs: string[]
+}
+
+export interface CertScenario {
+  id: string
+  label: string
+  description?: string
+  /** Leaf first, root last. */
+  certs: CertInfo[]
+  checks: CertCheck[]
+  verdict: { ok: boolean; text: string }
+}
+
+export interface CertChainSection {
+  type: 'certChain'
+  title?: string
+  intro?: string
+  scenarios: CertScenario[]
+  simplification?: string
+}
+
+// ---------- TLS: what routers see ----------
+
+export interface RouterViewSection {
+  type: 'routerView'
+  title?: string
+  intro?: string
+  /** The plain request as the endpoints see it. */
+  plaintext: string
+  /** What stays visible on the wire even with TLS. */
+  visibleMetadata: Record<string, string>
+  note?: string
+}
+
 export type Section =
+  | TableSection
+  | AnatomySection
+  | DnsTreeSection
+  | AnycastMapSection
+  | CertChainSection
+  | RouterViewSection
   | ProseSection
   | KeyPointsSection
   | LayerStackSection

@@ -1,5 +1,10 @@
 import type { Section } from '../content/types'
+import { Anatomy } from './Anatomy'
+import { AnycastMap } from './AnycastMap'
 import { Callout } from './Callout'
+import { CertChain } from './CertChain'
+import { DataTable } from './DataTable'
+import { DnsTree } from './DnsTree'
 import { DeepDive } from './DeepDive'
 import { FlowWindow } from './FlowWindow'
 import { Journey } from './Journey'
@@ -7,12 +12,25 @@ import { KeyPoints } from './KeyPoints'
 import { LayerStack } from './LayerStack'
 import { Quiz } from './Quiz'
 import { RichText } from './RichText'
+import { RouterView } from './RouterView'
 import { SectionCard } from './SectionCard'
 import { SequenceDiagram } from './SequenceDiagram'
 
 /** Maps each section type in the chapter data to its component. */
 export function SectionRenderer({ section }: { section: Section }) {
   switch (section.type) {
+    case 'table':
+      return <DataTable section={section} />
+    case 'anatomy':
+      return <Anatomy section={section} />
+    case 'dnsTree':
+      return <DnsTree section={section} />
+    case 'anycastMap':
+      return <AnycastMap section={section} />
+    case 'certChain':
+      return <CertChain section={section} />
+    case 'routerView':
+      return <RouterView section={section} />
     case 'prose':
       return (
         <div className="space-y-3 text-base leading-relaxed">

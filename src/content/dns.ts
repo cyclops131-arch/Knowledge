@@ -1,6 +1,86 @@
-import type { Chapter } from './types'
+import type { Chapter, DnsWalkStep } from './types'
 
-// Placeholder: full content arrives in build phase 4 (see PROJECT_BRIEF.md).
+/** The normal walk down the tree when nothing is cached. */
+const coldWalk: DnsWalkStep[] = [
+  {
+    from: 'browser',
+    label: 'Browser cache',
+    badge: 'miss',
+    tone: 'warning',
+    caption: 'The browser checks its own cache first. Nothing for `www.google.com`.',
+  },
+  {
+    from: 'os',
+    label: 'OS cache',
+    badge: 'miss',
+    tone: 'warning',
+    caption: 'Then the operating system’s cache. Also empty.',
+  },
+  {
+    from: 'os',
+    to: 'resolver',
+    label: 'www.google.com?',
+    caption: 'The OS asks its configured [[resolver]], usually your ISP’s, or a public one you’ve chosen.',
+    fields: { Question: 'www.google.com', Type: 'A' },
+  },
+  {
+    from: 'resolver',
+    label: 'Resolver cache',
+    badge: 'miss',
+    tone: 'warning',
+    caption: 'The resolver hasn’t seen this name recently either. Time to walk the tree from the top.',
+  },
+  {
+    from: 'resolver',
+    to: 'root',
+    label: 'www.google.com?',
+    caption: 'It asks a [[root-server|root server]]. The root doesn’t know Google, but it knows who runs `.com`.',
+    fields: { Question: 'www.google.com', 'Asked of': 'a.root-servers.net' },
+  },
+  {
+    from: 'root',
+    to: 'resolver',
+    label: 'Ask .com',
+    caption: '“I don’t know, but the `.com` servers will. Here are their addresses.” This is a **referral**, not an answer.',
+    fields: { Referral: '.com name servers', Example: 'a.gtld-servers.net' },
+  },
+  {
+    from: 'resolver',
+    to: 'com',
+    label: 'www.google.com?',
+    caption: 'The resolver asks a `.com` [[tld|TLD]] server.',
+  },
+  {
+    from: 'com',
+    to: 'resolver',
+    label: 'Ask google’s name servers',
+    caption: '“`google.com` is managed by these [[name-server|name servers]].” Another referral, one level down.',
+    fields: { Referral: 'google.com name servers', Example: 'ns1.google.com' },
+  },
+  {
+    from: 'resolver',
+    to: 'google',
+    label: 'www.google.com?',
+    caption: 'Finally the resolver asks Google’s own name servers, which hold the records for everything under `google.com`.',
+  },
+  {
+    from: 'google',
+    to: 'resolver',
+    label: 'A 142.250.80.36',
+    tone: 'success',
+    highlight: ['www'],
+    caption: 'An actual answer: the [[a-record|A record]] for `www`, with a [[ttl|TTL]] saying how long it may be cached.',
+    fields: { Answer: '142.250.80.36 (example)', Type: 'A', TTL: '300 s' },
+  },
+  {
+    from: 'resolver',
+    to: 'os',
+    label: '142.250.80.36',
+    tone: 'success',
+    caption: 'The resolver hands the answer back **and caches it**, as do the OS and the browser. The next lookup for the next 5 minutes skips the whole walk.',
+  },
+]
+
 export const dns: Chapter = {
   id: 'dns',
   path: '/dns',
@@ -8,8 +88,329 @@ export const dns: Chapter = {
   title: 'DNS: Finding the Address',
   short: 'DNS',
   icon: '📖',
-  summary: 'Turning www.google.com into 142.250.80.36: a walk down the root → .com → google tree, caching, TTLs, and anycast.',
-  status: 'planned',
-  sections: [],
-  glossary: [],
+  summary:
+    'Routers move packets by number, not by name. Before anything else, the browser has to turn www.google.com into an IP address. DNS is how.',
+  status: 'ready',
+  sections: [
+    {
+      type: 'prose',
+      paragraphs: [
+        '[[dns|DNS]] is a **distributed, hierarchical directory** that maps names to [[ip-address|IP addresses]] (IPv4 like `142.250.80.36`, or IPv6 like `2607:f8b0:4004:c1b::63`).',
+        'It is not one giant phone book. It is thousands of servers, each responsible for one slice of the namespace, plus a lot of caching so that most lookups never travel far.',
+      ],
+    },
+    {
+      type: 'anatomy',
+      title: 'Read a domain right to left',
+      intro: 'Each dot is a level in the tree. Hover or tap each part.',
+      hint: '← most specific … least specific →',
+      parts: [
+        {
+          text: 'www',
+          label: 'Subdomain',
+          detail: 'Chosen by the domain owner. `www`, `mail`, `maps`… Google can create as many as it likes without asking anyone.',
+          tone: 'success',
+        },
+        { text: '.', label: 'Separator', detail: 'Each dot marks a step down the tree.', tone: 'muted' },
+        {
+          text: 'google',
+          label: 'Domain',
+          detail: 'Registered by Google through a [[registrar]]. The `.com` registry points to Google’s own name servers for everything under it.',
+          tone: 'info',
+        },
+        { text: '.', label: 'Separator', detail: 'Each dot marks a step down the tree.', tone: 'muted' },
+        {
+          text: 'com',
+          label: 'Top-level domain (TLD)',
+          detail: 'Run by a registry operator (Verisign runs `.com`). The root zone says which servers answer for it.',
+          tone: 'warning',
+        },
+        {
+          text: '.',
+          label: 'Root',
+          detail: 'The invisible trailing dot. The top of the tree, served by 13 named [[root-server|root servers]] (really hundreds of machines, thanks to [[anycast]]).',
+          tone: 'danger',
+        },
+      ],
+    },
+    {
+      type: 'dnsTree',
+      title: 'Walking the tree',
+      intro:
+        'Watch the resolver work its way down. Then try the What If toggles: a warm cache, a brand-new domain, and a TLD that doesn’t exist.',
+      clients: [
+        { id: 'browser', label: 'Browser', sublabel: 'cache' },
+        { id: 'os', label: 'OS', sublabel: 'cache' },
+        { id: 'resolver', label: 'Resolver', sublabel: 'ISP' },
+      ],
+      nodes: [
+        { id: 'root', label: '.', sublabel: 'root' },
+        { id: 'com', label: '.com', parent: 'root' },
+        { id: 'org', label: '.org', parent: 'root' },
+        { id: 'abc', label: '.abc', parent: 'root', ghost: 'missing' },
+        { id: 'google', label: 'google', parent: 'com' },
+        { id: 'mysite', label: 'my-site', parent: 'com', ghost: 'new' },
+        { id: 'wikipedia', label: 'wikipedia', parent: 'org' },
+        { id: 'www', label: 'www', parent: 'google' },
+        { id: 'mail', label: 'mail', parent: 'google' },
+      ],
+      scenarios: [
+        { id: 'cold', label: 'Cold cache', steps: coldWalk },
+        {
+          id: 'warm',
+          label: 'What if it’s cached?',
+          description: 'Someone on your ISP looked up google.com two minutes ago.',
+          steps: [
+            coldWalk[0],
+            coldWalk[1],
+            coldWalk[2],
+            {
+              from: 'resolver',
+              label: 'Resolver cache',
+              badge: 'hit',
+              tone: 'success',
+              caption: 'The resolver already has `www.google.com`, cached 2 minutes ago with a 5-minute [[ttl|TTL]]. 3 minutes left: no need to ask anyone.',
+              fields: { Cached: '142.250.80.36', 'TTL left': '180 s' },
+            },
+            {
+              from: 'resolver',
+              to: 'os',
+              label: '142.250.80.36',
+              tone: 'success',
+              caption: 'Answer in about a millisecond instead of several round trips. This is why **most lookups never reach the root**.',
+            },
+          ],
+        },
+        {
+          id: 'leaf',
+          label: 'What if the domain is brand new?',
+          description: 'You just registered my-site.com. Nothing is cached anywhere.',
+          steps: [
+            {
+              from: 'com',
+              label: 'Registrar writes to .com',
+              reveal: ['mysite'],
+              tone: 'info',
+              caption: 'Your [[registrar]] writes `my-site.com` and its name servers into the `.com` [[registry]]. You’re adding a **leaf** to an existing branch.',
+            },
+            {
+              from: 'com',
+              label: 'Propagates',
+              badge: 'minutes–hours',
+              tone: 'info',
+              caption: 'The change is copied to every `.com` server worldwide. That usually takes minutes, occasionally hours.',
+            },
+            {
+              from: 'resolver',
+              to: 'root',
+              label: 'www.my-site.com?',
+              caption: 'A visitor’s resolver starts at the top as usual.',
+            },
+            {
+              from: 'root',
+              to: 'resolver',
+              label: 'Ask .com',
+              caption: 'The root didn’t change at all. `.com` already existed.',
+            },
+            {
+              from: 'resolver',
+              to: 'com',
+              label: 'www.my-site.com?',
+              caption: 'Ask `.com`…',
+            },
+            {
+              from: 'com',
+              to: 'resolver',
+              label: 'Ask my-site’s name servers',
+              caption: '…which now knows about the new domain.',
+            },
+            {
+              from: 'resolver',
+              to: 'mysite',
+              label: 'www.my-site.com?',
+              caption: 'Ask your name servers (often run by your hosting or DNS provider).',
+            },
+            {
+              from: 'mysite',
+              to: 'resolver',
+              label: 'A 203.0.113.7',
+              tone: 'success',
+              caption: 'Your record answers. Nobody above `.com` was involved.',
+              fields: { Answer: '203.0.113.7 (example)' },
+            },
+          ],
+        },
+        {
+          id: 'branch',
+          label: 'What if the TLD doesn’t exist?',
+          description: 'Someone tries www.example.abc, but there is no .abc.',
+          steps: [
+            {
+              from: 'resolver',
+              to: 'root',
+              label: 'www.example.abc?',
+              caption: 'The resolver asks the root, as always.',
+            },
+            {
+              from: 'root',
+              to: 'resolver',
+              label: 'NXDOMAIN',
+              tone: 'danger',
+              reveal: ['abc'],
+              caption: 'The root has no `.abc` entry, so the answer is [[nxdomain|NXDOMAIN]]: “no such domain”. Nothing below can ever be reached.',
+              fields: { Response: 'NXDOMAIN', Meaning: 'This name does not exist' },
+            },
+            {
+              from: 'root',
+              label: 'New branch needs ICANN',
+              tone: 'info',
+              caption: 'Adding a TLD means adding a **branch** to the root zone. That requires [[icann|ICANN]] approval and a registry operator. It’s how `.app`, `.dev` and `.shop` came to exist.',
+            },
+          ],
+        },
+      ],
+      simplification:
+        'Real resolvers cache the .com and google.com referrals too, ask several servers in parallel, and may validate signatures (DNSSEC). Name server answers often come with extra “glue” addresses.',
+    },
+    {
+      type: 'table',
+      title: 'Record types you’ll meet',
+      intro: 'A name can have many records. The question says which type you want.',
+      columns: ['Type', 'Answers', 'Example for google.com'],
+      rows: [
+        ['`A`', 'IPv4 address', '`www → 142.250.80.36`'],
+        ['`AAAA`', 'IPv6 address', '`www → 2607:f8b0:4004:c1b::63`'],
+        ['`CNAME`', 'An alias: “ask about this other name instead”', '`docs → ghs.googlehosted.com`'],
+        ['`MX`', 'Which servers accept email for the domain', '`google.com → smtp.google.com`'],
+        ['`TXT`', 'Free text, often proof you own the domain', '`"google-site-verification=…"`'],
+        ['`NS`', 'Which name servers are in charge', '`google.com → ns1.google.com`'],
+      ],
+    },
+    {
+      type: 'callout',
+      tone: 'info',
+      title: 'One name, many answers',
+      body: 'Ask for `www.google.com` from Paris and from Tokyo and you will usually get **different IPs**. Big services use DNS to spread load and send each user to a nearby data center.',
+    },
+    {
+      type: 'anycastMap',
+      title: 'Anycast: one address, many places',
+      intro:
+        'Every site below announces the **same IP**. Each user’s packets go to whichever site is closest in network terms. Tap a site to take it offline and watch traffic shift.',
+      ip: '198.41.0.4',
+      serviceName: 'a.root-servers.net',
+      sites: [
+        { id: 'ash', label: 'Ashburn', lon: -77.5, lat: 39 },
+        { id: 'lax', label: 'Los Angeles', lon: -118.2, lat: 34 },
+        { id: 'gru', label: 'São Paulo', lon: -46.6, lat: -23.5, labelPos: 'right' },
+        { id: 'lhr', label: 'London', lon: -0.1, lat: 51.5, labelPos: 'left' },
+        { id: 'fra', label: 'Frankfurt', lon: 8.7, lat: 50.1, labelPos: 'right' },
+        { id: 'jnb', label: 'Johannesburg', lon: 28, lat: -26.2 },
+        { id: 'bom', label: 'Mumbai', lon: 72.9, lat: 19.1 },
+        { id: 'sin', label: 'Singapore', lon: 103.8, lat: 1.3 },
+        { id: 'nrt', label: 'Tokyo', lon: 139.7, lat: 35.7 },
+        { id: 'syd', label: 'Sydney', lon: 151.2, lat: -33.9 },
+      ],
+      users: [
+        { id: 'par', label: 'Paris', lon: 2.35, lat: 48.85, labelPos: 'below' },
+        { id: 'nyc', label: 'New York', lon: -74, lat: 40.7 },
+        { id: 'osa', label: 'Osaka', lon: 135.5, lat: 34.7 },
+        { id: 'nbo', label: 'Nairobi', lon: 36.8, lat: -1.3 },
+        { id: 'bue', label: 'Buenos Aires', lon: -58.4, lat: -34.6, labelPos: 'below' },
+      ],
+      simplification:
+        '“Closest” is decided by internet routing (BGP), not by kilometers, so it usually but not always matches geography. Real root servers have hundreds of sites.',
+    },
+    {
+      type: 'keyPoints',
+      title: 'Who runs all this?',
+      points: [
+        { icon: '🌐', title: 'ICANN', body: 'Manages the root zone and the namespace: which TLDs exist and who runs them.' },
+        { icon: '🏛️', title: 'Registry operator', body: 'Runs one TLD’s servers and database. Verisign runs `.com`.' },
+        { icon: '🛒', title: 'Registrar', body: 'Sells you a domain and writes it into the registry: GoDaddy, Namecheap, Cloudflare…' },
+        { icon: '🧑‍💻', title: 'Domain owner', body: 'You. Once registered, you manage your own records (A, MX, TXT…) on your name servers.' },
+      ],
+    },
+    {
+      type: 'deepDives',
+      title: 'Deep dives: questions that came up',
+      items: [
+        {
+          question: 'What if nothing is cached and the domain is brand new?',
+          answer: [
+            'A new **domain** under an existing TLD: the [[registrar]] writes it into the TLD [[registry]] (for `.com`, Verisign’s database), and that propagates to all the TLD’s servers within minutes to hours.',
+            'You are adding a **leaf** to an existing branch. The root never hears about it; it only needs to know about `.com`. Try the “brand new” toggle in the tree above.',
+          ],
+        },
+        {
+          question: 'What if the TLD itself (.abc) doesn’t exist?',
+          answer: [
+            'The root servers don’t know it, so the lookup ends right there with [[nxdomain|NXDOMAIN]]. It can’t resolve, no matter what records you create.',
+            'A new **TLD** must be approved by [[icann|ICANN]] and added to the root zone. You’re adding a **branch**. That’s how `.app`, `.dev` and `.shop` came to exist.',
+          ],
+        },
+        {
+          question: 'DNS servers are everywhere; how do I reach the nearest, and how do they stay the same?',
+          answer: [
+            '**[[anycast|Anycast]]:** the same IP address is announced from many locations. Internet routing naturally delivers your packets to the nearest one. If a site goes down, it stops announcing, and traffic flows to the next nearest.',
+            '**Replication:** every location holds a copy of the same zone data, kept in sync from a primary source. So whichever site you reach, you get the same answer.',
+          ],
+        },
+      ],
+    },
+    {
+      type: 'quiz',
+      title: 'Check yourself',
+      questions: [
+        {
+          question: 'In `www.google.com`, which part is the TLD?',
+          options: ['`www`', '`google`', '`com`', 'The trailing `.`'],
+          answerIndex: 2,
+          explanation: 'Read right to left: root (.), then the TLD `com`, then the domain `google`, then the subdomain `www`.',
+        },
+        {
+          question: 'What does the root server answer when asked for www.google.com?',
+          options: ['The IP address', 'A referral to the .com servers', 'NXDOMAIN', 'Google’s certificate'],
+          answerIndex: 1,
+          explanation: 'Each level only knows the next level down. The root refers you to `.com`, which refers you to Google’s name servers.',
+        },
+        {
+          question: 'Why do most DNS lookups never reach the root?',
+          options: ['The root is too slow', 'Caching at the browser, OS and resolver, governed by TTLs', 'Browsers ship a copy of DNS', 'Anycast skips it'],
+          answerIndex: 1,
+          explanation: 'Answers (and referrals) are cached until their TTL expires, so popular names are almost always answered from a nearby cache.',
+        },
+        {
+          question: 'You register my-site.com. Who has to change?',
+          options: ['ICANN and the root zone', 'Only the .com registry (via your registrar)', 'Every resolver on the internet', 'Nobody until you buy a certificate'],
+          answerIndex: 1,
+          explanation: 'A new domain is a leaf under an existing TLD. Only a new TLD would need a change to the root zone.',
+        },
+        {
+          question: 'Anycast means…',
+          options: [
+            'Each server has a different IP',
+            'The same IP is announced from many places, and routing picks the nearest',
+            'DNS answers are broadcast to everyone',
+            'Records are cached forever',
+          ],
+          answerIndex: 1,
+          explanation: 'One address, many sites. Routing delivers you to the closest one, and replication keeps their data identical.',
+        },
+      ],
+    },
+  ],
+  glossary: [
+    { id: 'resolver', term: 'Resolver', definition: 'The DNS server that does the lookup on your behalf (usually your ISP’s, or a public one). It walks the tree and caches answers.' },
+    { id: 'root-server', term: 'Root server', definition: 'Top of the DNS tree. Knows which servers handle each TLD. 13 named root servers, each copied to many sites via anycast.' },
+    { id: 'tld', term: 'TLD', definition: 'Top-level domain: the last part of a name, like .com, .org, .dev or .uk.' },
+    { id: 'name-server', term: 'Name server', definition: 'A server that holds the authoritative records for a domain, e.g. ns1.google.com for google.com.' },
+    { id: 'ttl', term: 'TTL', definition: 'Time to live. How long (in seconds) a DNS answer may be cached before it must be looked up again.' },
+    { id: 'a-record', term: 'A record', definition: 'A DNS record that maps a name to an IPv4 address. AAAA does the same for IPv6.' },
+    { id: 'nxdomain', term: 'NXDOMAIN', definition: '“Non-existent domain.” The DNS answer for a name that doesn’t exist.' },
+    { id: 'anycast', term: 'Anycast', definition: 'Announcing the same IP address from many locations, so routing delivers each user to the nearest one.' },
+    { id: 'icann', term: 'ICANN', definition: 'The organization that coordinates the DNS root zone and decides which TLDs exist.' },
+    { id: 'registry', term: 'Registry', definition: 'The operator and database behind one TLD, e.g. Verisign for .com.' },
+    { id: 'registrar', term: 'Registrar', definition: 'A company that sells domain names and writes them into the TLD registry: GoDaddy, Namecheap, Cloudflare…' },
+  ],
 }

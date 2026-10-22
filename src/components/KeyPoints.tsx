@@ -5,7 +5,7 @@ import { SectionCard } from './SectionCard'
 export function KeyPoints({ section }: { section: KeyPointsSection }) {
   return (
     <SectionCard title={section.title}>
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className={`grid gap-3 ${section.points.length === 4 ? "sm:grid-cols-2" : "sm:grid-cols-3"}`}>
         {section.points.map((p) => (
           <div key={p.title} className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950/60">
             <p className="font-semibold text-slate-900 dark:text-white">
